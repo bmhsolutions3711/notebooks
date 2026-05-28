@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1a1e27">
+<title>BIK — Notebooks</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="./static/notebooks-icon-32.png">
+<link rel="apple-touch-icon" href="./static/notebooks-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Notebooks">
+<style>
+:root {
+  --bg:        #0f0f0f;
+  --panel:    #141414;
+  --panel-2:  #1a1a1a;
+  --border:   #262626;
+  --border-2: #333;
+  --text:     #e5e7eb;
+  --text-dim: #6b7280;
+  --text-mid: #9ca3af;
+  --accent:   #e5b524;
+  --ok:       #22c55e;
+  --err:      #ef4444;
+  --hover:    rgba(255,255,255,0.04);
+  --active:   rgba(229,181,36,0.12);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}
+button { font-family: inherit; }
+
+/* ── Layout ──────────────────────────────── */
+.app {
+  --nb-width: 220px;
+  --pages-width: 260px;
+  display: grid;
+  grid-template-columns: var(--nb-width) 4px var(--pages-width) 4px 1fr;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+}
+.app.nb-collapsed { --nb-width: 0px; grid-template-columns: 0 0 var(--pages-width) 4px 1fr; }
+.app.pages-collapsed { grid-template-columns: var(--nb-width) 4px 0 0 1fr; }
+.app.nb-collapsed.pages-collapsed { grid-template-columns: 0 0 0 0 1fr; }
+.resize-handle {
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 20;
+  transition: background 0.15s;
+}
+.resize-handle:hover, .resize-handle.dragging { background: var(--accent); }
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: -4px; right: -4px;
+}
+.app.nb-collapsed .resize-handle[data-target="nb"],
+.app.pages-collapsed .resize-handle[data-target="pages"] { display: none; }
+.collapse-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 6px;
+  margin-left: 4px;
+  line-height: 1;
+}
+.collapse-btn:hover { color: var(--accent); }
+.expand-rail {
+  display: none;
+  position: fixed;
+  top: 48px;
+  bottom: 0;
+  width: 22px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 30;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.expand-rail:hover { color: var(--accent); background: var(--panel-2); }
+.expand-rail.left { left: 0; }
+.expand-rail.mid { left: 0; }
+.app.nb-collapsed .expand-rail.left { display: flex; }
+.app.nb-collapsed:not(.pages-collapsed) .expand-rail.mid { display: none; }
+.app.pages-collapsed:not(.nb-collapsed) .expand-rail.mid {
+  display: flex;
+  left: var(--nb-width);
+  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+.app.nb-collapsed.pages-collapsed .expand-rail.mid {
+  display: flex;
+  left: 22px;
+}
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+.topbar h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+.topbar h1 .icon { margin-right: 6px; }
+.topbar .status {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.topbar .status.saved { color: var(--ok); }
+.search-wrap {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  max-width: 500px;
+  margin: 0 auto;
+}
+.search-input {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 18px;
+  font-size: 13px;
+  outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
+.mobile-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+/* ── Panes ──────────────────────────────── */
+.pane {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.pane-header .add-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.pane-header .add-btn:hover { color: var(--accent); }
+.pane-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.pane-list::-webkit-scrollbar { width: 6px; }
+.pane-list::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+
+/* ── Notebook list ──────────────────────── */
+.nb-pane { background: var(--panel); border-right: 1px solid var(--border); }
+.nb-item, .page-item, .section-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text-mid);
+  font-size: 13px;
+  border-left: 2px solid transparent;
+  transition: background 0.1s;
+  position: relative;
+}
+.nb-item:hover, .page-item:hover { background: var(--hover); color: var(--text); }
+.nb-item.active, .page-item.active {
+  background: var(--active);
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+.nb-item .label, .page-item .label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.item-actions {
+  display: none;
+  gap: 4px;
+}
+.nb-item:hover .item-actions, .page-item:hover .item-actions { display: flex; }
+.item-actions button {
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 11px; padding: 2px 4px;
+}
+.item-actions button:hover { color: var(--accent); }
+.item-actions .del:hover { color: var(--err); }
+.count-badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: rgba(255,255,255,0.05);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+/* ── Pages pane ──────────────────────────── */
+.pages-pane { background: var(--panel-2); border-right: 1px solid var(--border); }
+.page-item { flex-direction: column; align-items: stretch; gap: 2px; padding: 10px 12px; }
+.page-item .row { display: flex; align-items: center; gap: 6px; }
+.page-item .preview {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-item .date {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+/* ── Sections tab bar (top of editor) ────── */
+.sections-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 4px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+.sections-bar::-webkit-scrollbar { display: none; }
+.section-tab {
+  border-left: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.section-tab:hover { color: var(--text); background: var(--hover); }
+.section-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: transparent;
+}
+.section-tab .sec-close {
+  display: none;
+  margin-left: 4px;
+  font-size: 12px;
+  opacity: 0.6;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 14px;
+}
+.section-tab:hover .sec-close { display: inline-block; }
+.section-tab .sec-close:hover { background: rgba(239,68,68,0.2); color: var(--err); opacity: 1; }
+.sections-bar .add-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.sections-bar .add-btn:hover { color: var(--accent); }
+
+/* ── Editor pane ────────────────────────── */
+.editor-pane { background: var(--bg); }
+.editor-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 20px 24px 8px;
+  width: 100%;
+}
+.page-title:focus { color: var(--accent); }
+.page-meta {
+  padding: 0 24px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.editor {
+  flex: 1;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  outline: none;
+  padding: 8px 24px 80px;
+  font-size: 15px;
+  line-height: 1.7;
+  resize: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  width: 100%;
+  overflow-y: auto;
+}
+.editor::placeholder { color: var(--text-dim); }
+.editor-toolbar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.toolbar-group { display: flex; align-items: center; gap: 6px; }
+.tool-btn {
+  padding: 5px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-2);
+  background: transparent;
+  color: var(--text-mid);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.tool-btn:hover { border-color: var(--accent); color: var(--accent); }
+.tool-btn.recording {
+  border-color: var(--err);
+  color: var(--err);
+  background: rgba(239,68,68,0.08);
+  animation: pulse 1.4s infinite;
+}
+@keyframes pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.3); }
+  50%     { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+}
+.meta-count { font-size: 11px; color: var(--text-dim); }
+
+/* ── Empty state ────────────────────────── */
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 30px;
+  text-align: center;
+}
+
+/* ── Search overlay ─────────────────────── */
+.search-overlay {
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 640px;
+  max-width: 92%;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0,0,0,0.6);
+  z-index: 1000;
+  display: none;
+}
+.search-overlay.open { display: block; }
+.search-result {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.search-result:hover { background: var(--hover); }
+.search-result .title { color: var(--accent); font-size: 13px; font-weight: 600; }
+.search-result .path { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.search-result .snippet {
+  color: var(--text-mid); font-size: 12px; margin-top: 6px; line-height: 1.5;
+}
+.search-result .snippet mark {
+  background: rgba(229,181,36,0.25); color: var(--accent); padding: 0 2px; border-radius: 2px;
+}
+
+/* ── Inline rename input ────────────────── */
+.rename-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 13px;
+  outline: none;
+  padding: 0;
+  width: 100%;
+}
+
+/* ── Mobile ─────────────────────────────── */
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .nb-pane, .pages-pane { display: none; position: fixed; top: 48px; bottom: 0; left: 0;
+    width: 78%; max-width: 320px; z-index: 500; background: var(--panel);
+    box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
+  .nb-pane.open, .pages-pane.open { display: flex; }
+  .pages-pane { left: auto; right: 0; box-shadow: -2px 0 10px rgba(0,0,0,0.5); }
+  .mobile-toggle { display: block; }
+  .mobile-toggle.right { margin-left: auto; }
+  .page-title { font-size: 18px; padding: 14px 16px 6px; }
+  .editor { padding: 6px 16px 80px; font-size: 14px; }
+}
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <div class="topbar">
+    <button class="mobile-toggle" id="mobileNB" title="Notebooks">☰</button>
+    <h1><span class="icon">📓</span>Notebooks</h1>
+    <div class="search-wrap">
+      <input class="search-input" id="searchInput" placeholder="Search all pages (⌘K)" autocomplete="off">
+    </div>
+    <span class="status" id="status">Ready</span>
+    <button class="mobile-toggle right" id="mobilePages" title="Pages">📄</button>
+  </div>
+
+  <!-- Notebooks pane -->
+  <aside class="pane nb-pane" id="nbPane">
+    <div class="pane-header">
+      <span>Notebooks</span>
+      <div>
+        <button class="add-btn" id="addNB" title="New notebook">+</button>
+        <button class="collapse-btn" id="collapseNB" title="Hide notebooks pane">‹</button>
+      </div>
+    </div>
+    <div class="pane-list" id="nbList"></div>
+  </aside>
+
+  <!-- Resize handle: notebooks ↔ pages -->
+  <div class="resize-handle" data-target="nb"></div>
+
+  <!-- Pages pane + sections tab bar above it -->
+  <section class="pane pages-pane" id="pagesPane">
+    <div class="sections-bar" id="sectionsBar"></div>
+    <div class="pane-header">
+      <span>Pages</span>
+      <div>
+        <button class="add-btn" id="addPage" title="New page">+</button>
+        <button class="collapse-btn" id="collapsePages" title="Hide pages pane">‹</button>
+      </div>
+    </div>
+    <div class="pane-list" id="pageList"></div>
+  </section>
+
+  <!-- Resize handle: pages ↔ editor -->
+  <div class="resize-handle" data-target="pages"></div>
+
+  <!-- Expand rails (visible only when a pane is collapsed) -->
+  <div class="expand-rail left" id="expandNB" title="Show notebooks">›</div>
+  <div class="expand-rail mid" id="expandPages" title="Show pages">›</div>
+
+  <!-- Editor -->
+  <section class="pane editor-pane">
+    <div class="editor-col" id="editorCol">
+      <div class="empty" id="emptyState">
+        Select a page, or create a new one.
+      </div>
+      <input class="page-title" id="pageTitle" placeholder="Untitled" style="display:none;">
+      <div class="page-meta" id="pageMeta" style="display:none;"></div>
+      <textarea class="editor" id="editor" placeholder="Start typing…" style="display:none;"></textarea>
+      <div class="editor-toolbar" id="editorToolbar" style="display:none;">
+        <div class="toolbar-group">
+          <button class="tool-btn" id="voiceBtn">🎙️ Dictate</button>
+          <button class="tool-btn" id="stampBtn">🕐 Stamp</button>
+          <button class="tool-btn" id="breakBtn">── Break</button>
+        </div>
+        <div class="toolbar-group">
+          <span class="meta-count" id="metaCount">0w · 0c</span>
+          <button class="tool-btn" id="copyBtn">📋 Copy</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Search overlay -->
+  <div class="search-overlay" id="searchOverlay"></div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────
+const state = {
+  notebooks: [],
+  sections: [],
+  pages: [],
+  activeNotebookId: null,
+  activeSectionId: null,
+  activePageId: null,
+  currentPage: null,   // full loaded page
+};
+const LS_UI = "bik_notebooks_ui";
+const LS_LAYOUT = "bik_notebooks_layout";
+
+// ─────────────────────────────────────────────────────────────
+// Layout (widths + collapse state, persisted)
+// ─────────────────────────────────────────────────────────────
+const layout = {
+  nbWidth: 220,
+  pagesWidth: 260,
+  nbCollapsed: false,
+  pagesCollapsed: false,
+};
+function loadLayout() {
+  try {
+    const raw = localStorage.getItem(LS_LAYOUT);
+    if (raw) Object.assign(layout, JSON.parse(raw));
+  } catch(e) {}
+  applyLayout();
+}
+function saveLayout() {
+  try { localStorage.setItem(LS_LAYOUT, JSON.stringify(layout)); } catch(e) {}
+}
+function applyLayout() {
+  const app = document.getElementById("app");
+  const nb = Math.max(160, Math.min(420, layout.nbWidth));
+  const pg = Math.max(200, Math.min(520, layout.pagesWidth));
+  app.style.setProperty("--nb-width", `${nb}px`);
+  app.style.setProperty("--pages-width", `${pg}px`);
+  app.classList.toggle("nb-collapsed", !!layout.nbCollapsed);
+  app.classList.toggle("pages-collapsed", !!layout.pagesCollapsed);
+}
+function toggleCollapse(which) {
+  if (which === "nb") layout.nbCollapsed = !layout.nbCollapsed;
+  if (which === "pages") layout.pagesCollapsed = !layout.pagesCollapsed;
+  applyLayout();
+  saveLayout();
+}
+
+// Drag-to-resize
+(function initResize() {
+  let dragTarget = null;
+  let startX = 0;
+  let startWidth = 0;
+  document.addEventListener("mousedown", (e) => {
+    const h = e.target.closest(".resize-handle");
+    if (!h) return;
+    dragTarget = h.dataset.target;
+    h.classList.add("dragging");
+    startX = e.clientX;
+    startWidth = dragTarget === "nb" ? layout.nbWidth : layout.pagesWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!dragTarget) return;
+    const delta = e.clientX - startX;
+    const next = startWidth + delta;
+    if (dragTarget === "nb") layout.nbWidth = next;
+    else layout.pagesWidth = next;
+    applyLayout();
+  });
+  document.addEventListener("mouseup", () => {
+    if (!dragTarget) return;
+    document.querySelectorAll(".resize-handle").forEach(h => h.classList.remove("dragging"));
+    dragTarget = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    saveLayout();
+  });
+})();
+
+// ─────────────────────────────────────────────────────────────
+// API — cross-origin Bearer auth (PWA shell on github.io, backend on tailnet)
+// ─────────────────────────────────────────────────────────────
+let API_BASE = localStorage.getItem("notebooks_backend_url") || "";
+let NB_TOKEN  = localStorage.getItem("notebooks_token") || "";
+
+async function api(method, path, body) {
+  const headers = {"Content-Type":"application/json"};
+  if (NB_TOKEN) headers["Authorization"] = "Bearer " + NB_TOKEN;
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(API_BASE + path, opts);
+  if (r.status === 401) { showSetup("Token rejected"); throw new Error("401"); }
+  if (!r.ok) throw new Error(`${method} ${path} → ${r.status}`);
+  return r.json();
+}
+const getJSON  = (p)       => api("GET",    p);
+const postJSON = (p, body) => api("POST",   p, body);
+const putJSON  = (p, body) => api("PUT",    p, body);
+const delJSON  = (p)       => api("DELETE", p);
+
+function setStatus(text, mode) {
+  const el = document.getElementById("status");
+  el.textContent = text;
+  el.className = "status" + (mode === "saved" ? " saved" : "");
+  if (mode === "saved") {
+    clearTimeout(setStatus._t);
+    setStatus._t = setTimeout(() => { el.textContent = "Saved"; }, 1500);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Persist UI selection
+// ─────────────────────────────────────────────────────────────
+function saveUI() {
+  try {
+    localStorage.setItem(LS_UI, JSON.stringify({
+      nb: state.activeNotebookId,
+      sec: state.activeSectionId,
+      page: state.activePageId,
+    }));
+  } catch(e) {}
+}
+function loadUI() {
+  try {
+    const raw = localStorage.getItem(LS_UI);
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) { return {}; }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Notebooks
+// ─────────────────────────────────────────────────────────────
+async function loadNotebooks(preserve) {
+  const r = await getJSON("/api/notebooks");
+  state.notebooks = r.notebooks || [];
+  renderNotebooks();
+  // Pick active
+  let pick = preserve && state.notebooks.find(n => n.id === preserve)
+          || state.notebooks.find(n => n.id === state.activeNotebookId)
+          || state.notebooks[0];
+  if (pick) await selectNotebook(pick.id);
+  else {
+    state.sections = []; state.pages = [];
+    renderSections(); renderPages(); renderEditor();
+  }
+}
+function renderNotebooks() {
+  const list = document.getElementById("nbList");
+  list.innerHTML = state.notebooks.map(n => `
+    <div class="nb-item ${n.id === state.activeNotebookId ? 'active' : ''}" data-id="${n.id}">
+      <span class="label" data-action="select">${escapeHTML(n.name)}</span>
+      <span class="count-badge">${n.page_count || 0}</span>
+      <div class="item-actions">
+        <button data-action="rename" title="Rename">✎</button>
+        <button class="del" data-action="delete" title="Delete">✕</button>
+      </div>
+    </div>
+  `).join("");
+}
+async function selectNotebook(id) {
+  state.activeNotebookId = id;
+  renderNotebooks();
+  const r = await getJSON(`/api/notebooks/${id}/sections`);
+  state.sections = r.sections || [];
+  // Keep active section if still valid
+  const keep = state.sections.find(s => s.id === state.activeSectionId);
+  const pick = keep || state.sections[0];
+  if (pick) await selectSection(pick.id);
+  else {
+    state.activeSectionId = null;
+    state.pages = [];
+    state.activePageId = null;
+    state.currentPage = null;
+    renderSections(); renderPages(); renderEditor();
+  }
+  saveUI();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Sections
+// ─────────────────────────────────────────────────────────────
+function renderSections() {
+  const bar = document.getElementById("sectionsBar");
+  bar.innerHTML = state.sections.map(s => `
+    <div class="section-tab ${s.id === state.activeSectionId ? 'active' : ''}" data-id="${s.id}">
+      <span class="label" data-action="select">${escapeHTML(s.name)}</span>
+      <span class="sec-close" data-action="delete" title="Delete section">✕</span>
+    </div>
+  `).join("") + `<button class="add-btn" id="addSec" title="New section">+</button>`;
+  document.getElementById("addSec").onclick = addSection;
+}
+async function selectSection(id) {
+  state.activeSectionId = id;
+  renderSections();
+  const r = await getJSON(`/api/sections/${id}/pages`);
+  state.pages = r.pages || [];
+  const keep = state.pages.find(p => p.id === state.activePageId);
+  const pick = keep || state.pages[0];
+  if (pick) await selectPage(pick.id);
+  else {
+    state.activePageId = null; state.currentPage = null;
+    renderPages(); renderEditor();
+  }
+  saveUI();
+}
+async function addSection() {
+  if (!state.activeNotebookId) return;
+  const name = prompt("Section name:", "New Section");
+  if (!name) return;
+  const r = await postJSON("/api/sections", {
+    notebook_id: state.activeNotebookId, name
+  });
+  state.sections.push({ id: r.id, notebook_id: state.activeNotebookId, name: r.name, page_count: 0 });
+  await selectSection(r.id);
+  await addPage();  // make first page immediately
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pages
+// ─────────────────────────────────────────────────────────────
+function renderPages() {
+  const list = document.getElementById("pageList");
+  if (!state.pages.length) {
+    list.innerHTML = `<div class="empty" style="padding:24px 16px;font-size:12px;">No pages. Click + to add one.</div>`;
+    return;
+  }
+  list.innerHTML = state.pages.map(p => `
+    <div class="page-item ${p.id === state.activePageId ? 'active' : ''}" data-id="${p.id}">
+      <div class="row">
+        <span class="label" data-action="select">${escapeHTML(p.title || "Untitled")}</span>
+        <div class="item-actions">
+          <button data-action="rename" title="Rename">✎</button>
+          <button class="del" data-action="delete" title="Delete">✕</button>
+        </div>
+      </div>
+      <div class="preview">${escapeHTML((p.preview || "").replace(/\n/g, " "))}</div>
+      <div class="date">${formatRelative(p.updated_at)}</div>
+    </div>
+  `).join("");
+}
+async function selectPage(id) {
+  // Flush current page save if pending
+  if (saveTimer) { clearTimeout(saveTimer); await savePageNow(); }
+  state.activePageId = id;
+  const page = await getJSON(`/api/pages/${id}`);
+  state.currentPage = page;
+  renderPages();
+  renderEditor();
+  saveUI();
+}
+async function addPage() {
+  if (!state.activeSectionId) return;
+  const r = await postJSON("/api/pages", {
+    section_id: state.activeSectionId, title: "Untitled", content: ""
+  });
+  // Refresh section pages
+  const pr = await getJSON(`/api/sections/${state.activeSectionId}/pages`);
+  state.pages = pr.pages || [];
+  await selectPage(r.id);
+  document.getElementById("pageTitle").focus();
+  document.getElementById("pageTitle").select();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Editor
+// ─────────────────────────────────────────────────────────────
+function renderEditor() {
+  const empty = document.getElementById("emptyState");
+  const title = document.getElementById("pageTitle");
+  const meta = document.getElementById("pageMeta");
+  const ed = document.getElementById("editor");
+  const tb = document.getElementById("editorToolbar");
+
+  if (!state.currentPage) {
+    empty.style.display = "flex";
+    title.style.display = meta.style.display = ed.style.display = tb.style.display = "none";
+    return;
+  }
+  empty.style.display = "none";
+  title.style.display = "block";
+  meta.style.display = "block";
+  ed.style.display = "block";
+  tb.style.display = "flex";
+
+  title.value = state.currentPage.title || "Untitled";
+  ed.value = state.currentPage.content || "";
+  meta.textContent = `Updated ${formatRelative(state.currentPage.updated_at)}`;
+  updateCount();
+}
+
+let saveTimer = null;
+function scheduleSave() {
+  setStatus("Saving…", "");
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(savePageNow, 500);
+}
+async function savePageNow() {
+  if (!state.currentPage) return;
+  saveTimer = null;
+  const title = document.getElementById("pageTitle").value.trim() || "Untitled";
+  const content = document.getElementById("editor").value;
+  try {
+    await putJSON(`/api/pages/${state.currentPage.id}`, { title, content });
+    state.currentPage.title = title;
+    state.currentPage.content = content;
+    state.currentPage.updated_at = new Date().toISOString().replace("T"," ").slice(0,19);
+    // Update the cached list entry
+    const listItem = state.pages.find(p => p.id === state.currentPage.id);
+    if (listItem) {
+      listItem.title = title;
+      listItem.preview = content.slice(0, 120);
+      listItem.updated_at = state.currentPage.updated_at;
+    }
+    renderPages();
+    document.getElementById("pageMeta").textContent = "Updated just now";
+    setStatus("Saved", "saved");
+  } catch(e) {
+    console.error(e);
+    setStatus("Save failed", "");
+  }
+}
+
+function updateCount() {
+  const txt = document.getElementById("editor").value;
+  const words = txt.trim() ? txt.trim().split(/\s+/).length : 0;
+  document.getElementById("metaCount").textContent = `${words}w · ${txt.length}c`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Toolbar actions
+// ─────────────────────────────────────────────────────────────
+function insertAtCursor(text) {
+  const ed = document.getElementById("editor");
+  const start = ed.selectionStart;
+  ed.value = ed.value.substring(0, start) + text + ed.value.substring(ed.selectionEnd);
+  ed.selectionStart = ed.selectionEnd = start + text.length;
+  ed.focus();
+  ed.dispatchEvent(new Event("input"));
+}
+function insertStamp() {
+  const stamp = new Date().toLocaleString("en-US", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+  insertAtCursor(`\n[${stamp}] `);
+}
+function insertBreak() {
+  insertAtCursor("\n────────────────────\n");
+}
+function copyAll() {
+  const txt = document.getElementById("editor").value;
+  navigator.clipboard.writeText(txt).then(() => setStatus("Copied", "saved"));
+}
+
+// ─────────────────────────────────────────────────────────────
+// Voice dictation (Web Speech API — works on localhost, no cert)
+// ─────────────────────────────────────────────────────────────
+let recognition = null, isRec = false;
+function toggleVoice() {
+  if (isRec) stopVoice(); else startVoice();
+}
+function startVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert("Voice not supported in this browser. Try Chrome/Edge."); return; }
+  recognition = new SR();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = "en-US";
+  recognition.onstart = () => {
+    isRec = true;
+    const b = document.getElementById("voiceBtn");
+    b.classList.add("recording");
+    b.textContent = "⏹️ Stop";
+  };
+  recognition.onresult = (e) => {
+    const latest = e.results[e.results.length - 1];
+    if (latest.isFinal) {
+      const t = latest[0].transcript.trim();
+      if (t) insertAtCursor(t + " ");
+    }
+  };
+  recognition.onerror = (e) => {
+    if (e.error !== "aborted" && e.error !== "no-speech") console.warn("Voice error:", e.error);
+    stopVoice();
+  };
+  recognition.onend = () => {
+    if (isRec) { try { recognition.start(); } catch(_) { stopVoice(); } }
+  };
+  try { recognition.start(); } catch(e) { console.warn(e); }
+}
+function stopVoice() {
+  isRec = false;
+  const b = document.getElementById("voiceBtn");
+  b.classList.remove("recording");
+  b.textContent = "🎙️ Dictate";
+  if (recognition) { try { recognition.stop(); } catch(_){} recognition = null; }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Search (FTS5)
+// ─────────────────────────────────────────────────────────────
+let searchTimer = null;
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 180);
+}
+async function runSearch() {
+  const q = document.getElementById("searchInput").value.trim();
+  const overlay = document.getElementById("searchOverlay");
+  if (!q) { overlay.classList.remove("open"); overlay.innerHTML = ""; return; }
+  try {
+    const r = await getJSON(`/api/search?q=${encodeURIComponent(q)}`);
+    const results = r.results || [];
+    if (!results.length) {
+      overlay.innerHTML = `<div class="search-result"><div class="title">No results</div></div>`;
+    } else {
+      overlay.innerHTML = results.map(res => `
+        <div class="search-result" data-page="${res.id}" data-section="${res.section_id}" data-nb="${res.notebook_id}">
+          <div class="title">${escapeHTML(res.title || "Untitled")}</div>
+          <div class="path">${escapeHTML(res.notebook_name)} › ${escapeHTML(res.section_name)}</div>
+          <div class="snippet">${res.snippet || ""}</div>
+        </div>
+      `).join("");
+    }
+    overlay.classList.add("open");
+  } catch(e) { console.error(e); }
+}
+document.addEventListener("click", (e) => {
+  const overlay = document.getElementById("searchOverlay");
+  if (!overlay.classList.contains("open")) return;
+  if (overlay.contains(e.target) || e.target.id === "searchInput") return;
+  overlay.classList.remove("open");
+});
+
+// ─────────────────────────────────────────────────────────────
+// Rename / Delete helpers (inline)
+// ─────────────────────────────────────────────────────────────
+function startRename(el, onCommit) {
+  const label = el.querySelector(".label");
+  if (!label) return;
+  const current = label.textContent;
+  const input = document.createElement("input");
+  input.className = "rename-input";
+  input.value = current;
+  input.maxLength = 80;
+  label.replaceWith(input);
+  input.focus();
+  input.select();
+  const cleanup = async (commit) => {
+    if (commit) {
+      const next = input.value.trim();
+      if (next && next !== current) await onCommit(next);
+    }
+    // Re-render parent list via caller
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { input.value = current; input.blur(); }
+  });
+  input.addEventListener("blur", async () => { await cleanup(true); });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Click delegation
+// ─────────────────────────────────────────────────────────────
+document.getElementById("nbList").addEventListener("click", async (e) => {
+  const item = e.target.closest(".nb-item");
+  if (!item) return;
+  const id = parseInt(item.dataset.id);
+  const action = e.target.dataset.action;
+  if (action === "rename") {
+    startRename(item, async (name) => {
+      await putJSON(`/api/notebooks/${id}`, { name });
+      await loadNotebooks(id);
+    });
+  } else if (action === "delete") {
+    if (!confirm(`Delete "${item.querySelector('.label').textContent}" and all its sections + pages?`)) return;
+    await delJSON(`/api/notebooks/${id}`);
+    state.activeNotebookId = null;
+    state.activeSectionId = null;
+    state.activePageId = null;
+    await loadNotebooks();
+  } else {
+    await selectNotebook(id);
+    document.getElementById("nbPane").classList.remove("open");
+  }
+});
+
+document.getElementById("sectionsBar").addEventListener("click", async (e) => {
+  const tab = e.target.closest(".section-tab");
+  if (!tab) return;
+  const id = parseInt(tab.dataset.id);
+  if (e.target.dataset.action === "delete") {
+    e.stopPropagation();
+    if (!confirm(`Delete section "${tab.querySelector('.label').textContent}" and all its pages?`)) return;
+    await delJSON(`/api/sections/${id}`);
+    if (state.activeSectionId === id) state.activeSectionId = null;
+    await selectNotebook(state.activeNotebookId);
+    return;
+  }
+  await selectSection(id);
+});
+
+document.getElementById("pageList").addEventListener("click", async (e) => {
+  const item = e.target.closest(".page-item");
+  if (!item) return;
+  const id = parseInt(item.dataset.id);
+  const action = e.target.dataset.action;
+  if (action === "rename") {
+    startRename(item, async (title) => {
+      await putJSON(`/api/pages/${id}`, { title });
+      if (state.currentPage?.id === id) {
+        state.currentPage.title = title;
+        document.getElementById("pageTitle").value = title;
+      }
+      const pr = await getJSON(`/api/sections/${state.activeSectionId}/pages`);
+      state.pages = pr.pages || [];
+      renderPages();
+    });
+  } else if (action === "delete") {
+    if (!confirm(`Delete page "${item.querySelector('.label').textContent}"?`)) return;
+    await delJSON(`/api/pages/${id}`);
+    if (state.activePageId === id) { state.activePageId = null; state.currentPage = null; }
+    await selectSection(state.activeSectionId);
+  } else {
+    await selectPage(id);
+    document.getElementById("pagesPane").classList.remove("open");
+  }
+});
+
+document.getElementById("searchOverlay").addEventListener("click", async (e) => {
+  const row = e.target.closest(".search-result");
+  if (!row || !row.dataset.page) return;
+  const nb = parseInt(row.dataset.nb);
+  const sec = parseInt(row.dataset.section);
+  const page = parseInt(row.dataset.page);
+  document.getElementById("searchInput").value = "";
+  document.getElementById("searchOverlay").classList.remove("open");
+  state.activeSectionId = sec;
+  state.activePageId = page;
+  await selectNotebook(nb);
+});
+
+// ─────────────────────────────────────────────────────────────
+// Button wiring
+// ─────────────────────────────────────────────────────────────
+document.getElementById("addNB").onclick = async () => {
+  const name = prompt("Notebook name:", "New Notebook");
+  if (!name) return;
+  const r = await postJSON("/api/notebooks", { name });
+  await loadNotebooks(r.id);
+};
+document.getElementById("addPage").onclick = addPage;
+document.getElementById("pageTitle").addEventListener("input", scheduleSave);
+document.getElementById("editor").addEventListener("input", () => { updateCount(); scheduleSave(); });
+document.getElementById("voiceBtn").onclick = toggleVoice;
+document.getElementById("stampBtn").onclick = insertStamp;
+document.getElementById("breakBtn").onclick = insertBreak;
+document.getElementById("copyBtn").onclick = copyAll;
+document.getElementById("searchInput").addEventListener("input", scheduleSearch);
+document.getElementById("mobileNB").onclick = () => document.getElementById("nbPane").classList.toggle("open");
+document.getElementById("mobilePages").onclick = () => document.getElementById("pagesPane").classList.toggle("open");
+document.getElementById("collapseNB").onclick = () => toggleCollapse("nb");
+document.getElementById("collapsePages").onclick = () => toggleCollapse("pages");
+document.getElementById("expandNB").onclick = () => toggleCollapse("nb");
+document.getElementById("expandPages").onclick = () => toggleCollapse("pages");
+
+// ─────────────────────────────────────────────────────────────
+// Keyboard shortcuts
+// ─────────────────────────────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+    e.preventDefault();
+    document.getElementById("searchInput").focus();
+    document.getElementById("searchInput").select();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    e.preventDefault();
+    if (saveTimer) { clearTimeout(saveTimer); savePageNow(); }
+  }
+  if (e.key === "Escape") {
+    const o = document.getElementById("searchOverlay");
+    if (o.classList.contains("open")) o.classList.remove("open");
+  }
+});
+window.addEventListener("beforeunload", () => {
+  if (saveTimer) { clearTimeout(saveTimer); savePageNow(); }
+});
+
+// ─────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────
+function escapeHTML(s) {
+  return String(s || "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+  }[c]));
+}
+function formatRelative(iso) {
+  if (!iso) return "";
+  const d = new Date(iso.replace(" ", "T") + (iso.includes("Z") ? "" : "Z"));
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return Math.floor(diff/60) + "m ago";
+  if (diff < 86400) return Math.floor(diff/3600) + "h ago";
+  if (diff < 7 * 86400) return Math.floor(diff/86400) + "d ago";
+  return d.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+}
+
+// ─────────────────────────────────────────────────────────────
+// Setup overlay — first-run wiring for cross-origin shell
+// ─────────────────────────────────────────────────────────────
+function showSetup(errorMsg) {
+  let overlay = document.getElementById("nb-setup-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "nb-setup-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(15,15,15,0.96);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;";
+    overlay.innerHTML = `
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:24px;max-width:420px;width:100%;color:var(--text,#e0e0e0);font-family:system-ui,-apple-system,sans-serif;">
+        <h2 style="margin:0 0 8px;font-size:20px;">Connect Notebooks</h2>
+        <p style="margin:0 0 16px;color:var(--muted,#888);font-size:13px;">First-run setup. Stored only in this browser.</p>
+        <label style="display:block;margin-bottom:12px;font-size:12px;color:var(--muted,#888);">Backend URL
+          <input id="nb-url" type="url" placeholder="https://...ts.net:8435" style="display:block;width:100%;margin-top:4px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:inherit;font-family:ui-monospace,monospace;font-size:12px;">
+        </label>
+        <label style="display:block;margin-bottom:12px;font-size:12px;color:var(--muted,#888);">NOTEBOOKS_TOKEN
+          <input id="nb-token" type="password" placeholder="paste token" style="display:block;width:100%;margin-top:4px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:inherit;font-family:ui-monospace,monospace;font-size:12px;">
+        </label>
+        <button id="nb-connect" style="display:block;width:100%;padding:12px;background:#22c55e;color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-family:inherit;">Connect</button>
+        <div id="nb-err" style="margin-top:10px;color:#ef4444;font-size:12px;"></div>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector("#nb-url").value = API_BASE;
+    overlay.querySelector("#nb-token").value = NB_TOKEN;
+    overlay.querySelector("#nb-connect").addEventListener("click", async () => {
+      const url = overlay.querySelector("#nb-url").value.trim().replace(/\/$/, "");
+      const tok = overlay.querySelector("#nb-token").value.trim();
+      const errEl = overlay.querySelector("#nb-err");
+      if (!url || !tok) { errEl.textContent = "Both fields required"; return; }
+      try {
+        const r = await fetch(url + "/api/health", { headers: { "Authorization": "Bearer " + tok } });
+        if (r.status === 401) throw new Error("Token rejected");
+        if (!r.ok) throw new Error("Backend returned " + r.status);
+        API_BASE = url; NB_TOKEN = tok;
+        localStorage.setItem("notebooks_backend_url", url);
+        localStorage.setItem("notebooks_token", tok);
+        overlay.remove();
+        boot();
+      } catch (e) { errEl.textContent = e.message || "connection failed"; }
+    });
+  }
+  if (errorMsg) overlay.querySelector("#nb-err").textContent = errorMsg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────────
+async function boot() {
+  loadLayout();
+  const saved = loadUI();
+  if (saved.nb)   state.activeNotebookId = saved.nb;
+  if (saved.sec)  state.activeSectionId  = saved.sec;
+  if (saved.page) state.activePageId     = saved.page;
+  await loadNotebooks();
+}
+
+if (!API_BASE || !NB_TOKEN) {
+  showSetup();
+} else {
+  boot();
+}
+
+// ── Service worker + auto-sync build pill ──
+// sw.js's CACHE_NAME is the source of truth.
+if ('serviceWorker' in navigator) {
+  fetch('./sw.js?_=' + Date.now(), { cache: 'no-store' })
+    .then(r => r.text())
+    .then(t => {
+      const m = t.match(/CACHE_NAME\s*=\s*["']([^"']+)["']/);
+      const ver = (m && m[1].match(/v\d+/i)) ? m[1].match(/v\d+/i)[0] : null;
+      if (ver) {
+        const pill = document.querySelector('.build-pill') || document.getElementById('buildPill');
+        if (pill) pill.textContent = ver;
+        navigator.serviceWorker.register('./sw.js?' + ver).catch(() => {});
+      } else {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      }
+    })
+    .catch(() => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+    "name": "Notebooks — BMH",
+    "short_name": "Notebooks",
+    "description": "BIK Notebooks — replaces OneNote. FTS5 search, your notes on your disk.",
+    "id": "/notebooks/",
+    "start_url": "./",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#1a1e27",
+    "theme_color": "#1a1e27",
+    "icons": [
+        { "src": "./static/notebooks-icon-32.png",  "sizes": "32x32",   "type": "image/png" },
+        { "src": "./static/notebooks-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+        { "src": "./static/notebooks-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    ]
+}
