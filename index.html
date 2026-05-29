@@ -512,6 +512,10 @@ button { font-family: inherit; }
       <textarea class="editor" id="editor" placeholder="Start typing…" style="display:none;"></textarea>
       <div class="editor-toolbar" id="editorToolbar" style="display:none;">
         <div class="toolbar-group">
+          <button class="tool-btn" id="bulletBtn" title="Bullet list (toggles on current line / selected lines)">• List</button>
+          <button class="tool-btn" id="numberBtn" title="Numbered list (toggles on current line / selected lines)">1. List</button>
+          <button class="tool-btn" id="indentBtn" title="Indent">→</button>
+          <button class="tool-btn" id="outdentBtn" title="Outdent">←</button>
           <button class="tool-btn" id="voiceBtn">🎙️ Dictate</button>
           <button class="tool-btn" id="stampBtn">🕐 Stamp</button>
           <button class="tool-btn" id="breakBtn">── Break</button>
@@ -887,6 +891,131 @@ function copyAll() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Lists — markdown-style bullets/numbers in the textarea.
+// Plain text stays plain (great for FTS5 + future export), but typing
+// feels rich: toolbar toggles, Enter auto-continues, Enter on empty
+// marker escapes, Tab indents.
+// ─────────────────────────────────────────────────────────────
+function _selectedLineBounds(ed) {
+  const s = ed.value.lastIndexOf("\n", ed.selectionStart - 1) + 1;
+  const tail = ed.selectionEnd > ed.selectionStart ? ed.selectionEnd - 1 : ed.selectionEnd;
+  const eRaw = ed.value.indexOf("\n", tail);
+  const e = eRaw === -1 ? ed.value.length : eRaw;
+  return [s, e];
+}
+
+function _applyToLines(ed, fn) {
+  const [s, e] = _selectedLineBounds(ed);
+  const before = ed.value.slice(0, s);
+  const block = ed.value.slice(s, e);
+  const after = ed.value.slice(e);
+  const replaced = block.split("\n").map(fn).join("\n");
+  ed.value = before + replaced + after;
+  ed.selectionStart = ed.selectionEnd = before.length + replaced.length;
+  ed.focus();
+  ed.dispatchEvent(new Event("input"));
+}
+
+function toggleBullet() {
+  const ed = document.getElementById("editor");
+  const [s, e] = _selectedLineBounds(ed);
+  const lines = ed.value.slice(s, e).split("\n");
+  const nonEmpty = lines.filter(l => l.trim());
+  if (nonEmpty.length && nonEmpty.every(l => /^\s*- /.test(l))) {
+    _applyToLines(ed, l => l.replace(/^(\s*)- /, "$1"));
+  } else {
+    _applyToLines(ed, l => {
+      if (!l.trim()) return l;
+      const indent = (l.match(/^\s*/) || [""])[0];
+      const body = l.slice(indent.length);
+      if (body.startsWith("- ")) return l;
+      if (/^\d+\. /.test(body)) return indent + "- " + body.replace(/^\d+\. /, "");
+      return indent + "- " + body;
+    });
+  }
+}
+
+function toggleNumber() {
+  const ed = document.getElementById("editor");
+  const [s, e] = _selectedLineBounds(ed);
+  const lines = ed.value.slice(s, e).split("\n");
+  const nonEmpty = lines.filter(l => l.trim());
+  if (nonEmpty.length && nonEmpty.every(l => /^\s*\d+\. /.test(l))) {
+    _applyToLines(ed, l => l.replace(/^(\s*)\d+\. /, "$1"));
+  } else {
+    let n = 1;
+    _applyToLines(ed, l => {
+      if (!l.trim()) return l;
+      const indent = (l.match(/^\s*/) || [""])[0];
+      let body = l.slice(indent.length).replace(/^\d+\. /, "").replace(/^- /, "");
+      return indent + (n++) + ". " + body;
+    });
+  }
+}
+
+function indentLine(outdent) {
+  const ed = document.getElementById("editor");
+  _applyToLines(ed, l => {
+    if (outdent) {
+      return l.startsWith("  ") ? l.slice(2) : l.replace(/^\s+/, "");
+    }
+    return "  " + l;
+  });
+}
+
+function _onEditorKeydown(e) {
+  const ed = e.target;
+  if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+    const lineStart = ed.value.lastIndexOf("\n", ed.selectionStart - 1) + 1;
+    const lineEndRaw = ed.value.indexOf("\n", ed.selectionStart);
+    const lineEnd = lineEndRaw === -1 ? ed.value.length : lineEndRaw;
+    const line = ed.value.slice(lineStart, lineEnd);
+    const atEnd = ed.selectionStart === lineEnd && ed.selectionStart === ed.selectionEnd;
+    if (!atEnd) return;
+    const indent = (line.match(/^\s*/) || [""])[0];
+    const body = line.slice(indent.length);
+
+    const bm = body.match(/^- (.*)$/);
+    if (bm) {
+      e.preventDefault();
+      if (bm[1].length === 0) {
+        ed.value = ed.value.slice(0, lineStart) + ed.value.slice(lineStart + indent.length + 2);
+        ed.selectionStart = ed.selectionEnd = lineStart;
+      } else {
+        const ins = "\n" + indent + "- ";
+        ed.value = ed.value.slice(0, ed.selectionStart) + ins + ed.value.slice(ed.selectionEnd);
+        ed.selectionStart = ed.selectionEnd = ed.selectionStart + ins.length;
+      }
+      ed.dispatchEvent(new Event("input"));
+      return;
+    }
+    const nm = body.match(/^(\d+)\. (.*)$/);
+    if (nm) {
+      e.preventDefault();
+      if (nm[2].length === 0) {
+        const markerLen = nm[1].length + 2;
+        ed.value = ed.value.slice(0, lineStart) + ed.value.slice(lineStart + indent.length + markerLen);
+        ed.selectionStart = ed.selectionEnd = lineStart;
+      } else {
+        const next = parseInt(nm[1], 10) + 1;
+        const ins = "\n" + indent + next + ". ";
+        ed.value = ed.value.slice(0, ed.selectionStart) + ins + ed.value.slice(ed.selectionEnd);
+        ed.selectionStart = ed.selectionEnd = ed.selectionStart + ins.length;
+      }
+      ed.dispatchEvent(new Event("input"));
+      return;
+    }
+    return;
+  }
+
+  if (e.key === "Tab") {
+    e.preventDefault();
+    indentLine(e.shiftKey);
+    return;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Voice dictation (Web Speech API — works on localhost, no cert)
 // ─────────────────────────────────────────────────────────────
 let recognition = null, isRec = false;
@@ -1087,9 +1216,14 @@ document.getElementById("addNB").onclick = async () => {
 document.getElementById("addPage").onclick = addPage;
 document.getElementById("pageTitle").addEventListener("input", scheduleSave);
 document.getElementById("editor").addEventListener("input", () => { updateCount(); scheduleSave(); });
+document.getElementById("editor").addEventListener("keydown", _onEditorKeydown);
 document.getElementById("voiceBtn").onclick = toggleVoice;
 document.getElementById("stampBtn").onclick = insertStamp;
 document.getElementById("breakBtn").onclick = insertBreak;
+document.getElementById("bulletBtn").onclick = toggleBullet;
+document.getElementById("numberBtn").onclick = toggleNumber;
+document.getElementById("indentBtn").onclick = () => indentLine(false);
+document.getElementById("outdentBtn").onclick = () => indentLine(true);
 document.getElementById("copyBtn").onclick = copyAll;
 document.getElementById("searchInput").addEventListener("input", scheduleSearch);
 document.getElementById("mobileNB").onclick = () => document.getElementById("nbPane").classList.toggle("open");
