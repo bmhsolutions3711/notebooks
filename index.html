@@ -439,12 +439,19 @@ button { font-family: inherit; }
 
 /* ── Mobile ─────────────────────────────── */
 @media (max-width: 900px) {
-  .app { grid-template-columns: 1fr; }
+  /* Single column. Topbar fills row 1, editor fills row 2 explicitly so
+     no other grid items (resize handles, expand rails) can push it down. */
+  .app { grid-template-columns: 1fr; grid-template-rows: 48px 1fr; }
+  .topbar { grid-row: 1; grid-column: 1; }
+  .editor-pane { grid-row: 2; grid-column: 1; }
+  /* Sidebars are overlays, not grid cells */
   .nb-pane, .pages-pane { display: none; position: fixed; top: 48px; bottom: 0; left: 0;
     width: 78%; max-width: 320px; z-index: 500; background: var(--panel);
     box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
   .nb-pane.open, .pages-pane.open { display: flex; }
   .pages-pane { left: auto; right: 0; box-shadow: -2px 0 10px rgba(0,0,0,0.5); }
+  /* Desktop-only chrome — hide on phone so they can't claim grid rows */
+  .resize-handle, .expand-rail { display: none; }
   .mobile-toggle { display: block; }
   .mobile-toggle.right { margin-left: auto; }
   .page-title { font-size: 18px; padding: 14px 16px 6px; }
