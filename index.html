@@ -380,6 +380,52 @@ button { font-family: inherit; }
 }
 .meta-count { font-size: 11px; color: var(--text-dim); }
 
+/* ── Image attachments strip ────────────── */
+.attach-strip {
+  display: none;
+  gap: 8px;
+  padding: 4px 24px 8px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+}
+.attach-strip::-webkit-scrollbar { height: 6px; }
+.attach-strip::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+.att-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  height: 76px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: zoom-in;
+  background: var(--panel-2);
+}
+.att-thumb img { height: 100%; width: auto; max-width: 220px; display: block; object-fit: cover; }
+.att-thumb.loading { width: 100px; }
+.att-del {
+  position: absolute; top: 3px; right: 3px;
+  width: 18px; height: 18px; line-height: 16px; text-align: center;
+  border-radius: 50%; border: none;
+  background: rgba(0,0,0,0.62); color: #fff; font-size: 11px; cursor: pointer;
+  opacity: 0; transition: opacity 0.12s;
+}
+.att-thumb:hover .att-del { opacity: 1; }
+.att-del:hover { background: var(--err); }
+
+/* ── Lightbox (full-size view) ──────────── */
+.lightbox {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.92);
+  display: none; align-items: center; justify-content: center;
+  padding: 24px; cursor: zoom-out;
+}
+.lightbox.open { display: flex; }
+.lightbox img {
+  max-width: 96vw; max-height: 92vh; border-radius: 6px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+}
+
 /* ── Empty state ────────────────────────── */
 .empty {
   flex: 1;
@@ -456,6 +502,7 @@ button { font-family: inherit; }
   .mobile-toggle.right { margin-left: auto; }
   .page-title { font-size: 18px; padding: 14px 16px 6px; }
   .editor { padding: 6px 16px 80px; font-size: 14px; }
+  .attach-strip { padding-left: 16px; padding-right: 16px; }
 }
 </style>
 <script>
@@ -547,7 +594,8 @@ button { font-family: inherit; }
       </div>
       <input class="page-title" id="pageTitle" placeholder="Untitled" style="display:none;">
       <div class="page-meta" id="pageMeta" style="display:none;"></div>
-      <textarea class="editor" id="editor" placeholder="Start typing…" style="display:none;"></textarea>
+      <div class="attach-strip" id="attachStrip" style="display:none;"></div>
+      <textarea class="editor" id="editor" placeholder="Start typing… (paste, drop, or 🖼️ to add an image)" style="display:none;"></textarea>
       <div class="editor-toolbar" id="editorToolbar" style="display:none;">
         <div class="toolbar-group">
           <button class="tool-btn" id="bulletBtn" title="Bullet list (toggles on current line / selected lines)">• List</button>
@@ -557,6 +605,7 @@ button { font-family: inherit; }
           <button class="tool-btn" id="voiceBtn">🎙️ Dictate</button>
           <button class="tool-btn" id="stampBtn">🕐 Stamp</button>
           <button class="tool-btn" id="breakBtn">── Break</button>
+          <button class="tool-btn" id="attachBtn" title="Add image — or paste / drag-drop into the note">🖼️ Image</button>
         </div>
         <div class="toolbar-group">
           <span class="meta-count" id="metaCount">0w · 0c</span>
@@ -571,6 +620,11 @@ button { font-family: inherit; }
 
 </div>
 
+<!-- Hidden picker for the 🖼️ Image button (phone: offers camera or gallery) -->
+<input type="file" id="imgInput" accept="image/*" multiple style="display:none">
+<!-- Full-size image viewer -->
+<div class="lightbox" id="lightbox"><img id="lightboxImg" alt=""></div>
+
 <script>
 // ─────────────────────────────────────────────────────────────
 // State
@@ -583,6 +637,7 @@ const state = {
   activeSectionId: null,
   activePageId: null,
   currentPage: null,   // full loaded page
+  attachments: [],     // image attachments for the current page
 };
 const LS_UI = "bik_notebooks_ui";
 const LS_LAYOUT = "bik_notebooks_layout";
@@ -825,6 +880,7 @@ async function selectPage(id) {
   state.currentPage = page;
   renderPages();
   renderEditor();
+  await loadAttachments(id);
   saveUI();
 }
 async function addPage() {
@@ -853,6 +909,9 @@ function renderEditor() {
   if (!state.currentPage) {
     empty.style.display = "flex";
     title.style.display = meta.style.display = ed.style.display = tb.style.display = "none";
+    state.attachments = [];
+    const strip = document.getElementById("attachStrip");
+    if (strip) { strip.style.display = "none"; strip.innerHTML = ""; }
     return;
   }
   empty.style.display = "none";
@@ -1098,6 +1157,142 @@ function stopVoice() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Image attachments
+// Pictures attach to the current page: paste (desktop), drag-drop
+// (desktop), or the 🖼️ picker (phone → camera/gallery). Images are
+// downscaled client-side, stored as BLOBs in notebooks.db, and shown
+// as a thumbnail strip with click-to-zoom. The note text stays pure
+// (FTS5 + previews untouched).
+// ─────────────────────────────────────────────────────────────
+const MAX_DIM = 1600;            // longest edge after downscale
+const JPEG_Q = 0.85;
+const OUT_MIME = (() => {
+  try {
+    return document.createElement("canvas").toDataURL("image/webp").indexOf("image/webp") === 5
+      ? "image/webp" : "image/jpeg";
+  } catch (_) { return "image/jpeg"; }
+})();
+const attUrlCache = {};          // attId -> object URL (revoked on delete)
+
+// Authenticated binary fetch → object URL (a plain <img src> can't send the
+// Bearer token the tailnet backend needs, so we fetch then blob-URL it).
+async function fetchObjectURL(path) {
+  const headers = {};
+  if (NB_TOKEN) headers["Authorization"] = "Bearer " + NB_TOKEN;
+  const r = await fetch(API_BASE + path, { headers });
+  if (!r.ok) throw new Error("img " + r.status);
+  return URL.createObjectURL(await r.blob());
+}
+
+async function compressImage(file) {
+  // Decode (honoring EXIF orientation so phone photos aren't sideways)
+  let src, w, h;
+  try {
+    src = await createImageBitmap(file, { imageOrientation: "from-image" });
+    w = src.width; h = src.height;
+  } catch (_) {
+    src = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i); i.onerror = rej;
+      i.src = URL.createObjectURL(file);
+    });
+    w = src.naturalWidth; h = src.naturalHeight;
+  }
+  let nw = w, nh = h;
+  if (Math.max(w, h) > MAX_DIM) {
+    const scale = MAX_DIM / Math.max(w, h);
+    nw = Math.round(w * scale); nh = Math.round(h * scale);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = nw; canvas.height = nh;
+  canvas.getContext("2d").drawImage(src, 0, 0, nw, nh);
+  if (src.close) src.close();
+  const dataUrl = canvas.toDataURL(OUT_MIME, JPEG_Q);
+  return {
+    data: dataUrl.split(",", 2)[1],
+    mime: OUT_MIME,
+    width: nw, height: nh,
+    filename: (file.name || "image").slice(0, 120),
+  };
+}
+
+async function uploadImageFile(file) {
+  if (!state.currentPage) { setStatus("Open a page first", ""); return; }
+  if (!file || !/^image\//.test(file.type || "")) return;
+  setStatus("Adding image…", "");
+  try {
+    const payload = await compressImage(file);
+    const r = await postJSON(`/api/pages/${state.currentPage.id}/attachments`, payload);
+    state.attachments.push(r);
+    await renderAttachments();
+    setStatus("Image added", "saved");
+  } catch (e) {
+    console.error(e);
+    setStatus("Image failed", "");
+  }
+}
+
+async function loadAttachments(pageId) {
+  try {
+    const r = await getJSON(`/api/pages/${pageId}/attachments`);
+    state.attachments = r.attachments || [];
+  } catch (e) { state.attachments = []; }
+  await renderAttachments();
+}
+
+async function renderAttachments() {
+  const strip = document.getElementById("attachStrip");
+  if (!strip) return;
+  const atts = state.attachments || [];
+  if (!atts.length) { strip.style.display = "none"; strip.innerHTML = ""; return; }
+  strip.style.display = "flex";
+  strip.innerHTML = atts.map(a => `
+    <div class="att-thumb loading" data-id="${a.id}" title="${escapeHTML(a.filename || 'image')}">
+      <img alt="${escapeHTML(a.filename || 'image')}" data-id="${a.id}">
+      <button class="att-del" data-action="del-att" data-id="${a.id}" title="Remove image">✕</button>
+    </div>`).join("");
+  for (const a of atts) {
+    const thumb = strip.querySelector(`.att-thumb[data-id="${a.id}"]`);
+    const img = thumb && thumb.querySelector("img");
+    if (!img) continue;
+    try {
+      if (!attUrlCache[a.id]) attUrlCache[a.id] = await fetchObjectURL(`/api/attachments/${a.id}`);
+      img.src = attUrlCache[a.id];
+      thumb.classList.remove("loading");
+    } catch (e) { console.warn("thumb load failed", a.id, e); }
+  }
+}
+
+function openLightbox(url) {
+  document.getElementById("lightboxImg").src = url;
+  document.getElementById("lightbox").classList.add("open");
+}
+function closeLightbox() {
+  document.getElementById("lightbox").classList.remove("open");
+}
+
+// Input paths
+function onEditorPaste(e) {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  const imgs = [];
+  for (const it of items) {
+    if (it.kind === "file" && /^image\//.test(it.type)) {
+      const f = it.getAsFile();
+      if (f) imgs.push(f);
+    }
+  }
+  if (imgs.length) { e.preventDefault(); imgs.forEach(uploadImageFile); }
+}
+function onEditorDragOver(e) {
+  if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+}
+function onEditorDrop(e) {
+  const files = (e.dataTransfer && e.dataTransfer.files) || [];
+  const imgs = Array.from(files).filter(f => /^image\//.test(f.type));
+  if (imgs.length) { e.preventDefault(); imgs.forEach(uploadImageFile); }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Search (FTS5)
 // ─────────────────────────────────────────────────────────────
 let searchTimer = null;
@@ -1255,6 +1450,36 @@ document.getElementById("addPage").onclick = addPage;
 document.getElementById("pageTitle").addEventListener("input", scheduleSave);
 document.getElementById("editor").addEventListener("input", () => { updateCount(); scheduleSave(); });
 document.getElementById("editor").addEventListener("keydown", _onEditorKeydown);
+document.getElementById("editor").addEventListener("paste", onEditorPaste);
+document.getElementById("editorCol").addEventListener("dragover", onEditorDragOver);
+document.getElementById("editorCol").addEventListener("drop", onEditorDrop);
+document.getElementById("attachBtn").onclick = () => document.getElementById("imgInput").click();
+document.getElementById("imgInput").addEventListener("change", (e) => {
+  Array.from(e.target.files || []).forEach(uploadImageFile);
+  e.target.value = "";
+});
+document.getElementById("attachStrip").addEventListener("click", async (e) => {
+  const del = e.target.closest('[data-action="del-att"]');
+  if (del) {
+    e.stopPropagation();
+    const id = parseInt(del.dataset.id);
+    if (!confirm("Remove this image?")) return;
+    try {
+      await delJSON(`/api/attachments/${id}`);
+      if (attUrlCache[id]) { URL.revokeObjectURL(attUrlCache[id]); delete attUrlCache[id]; }
+      state.attachments = state.attachments.filter(a => a.id !== id);
+      await renderAttachments();
+      setStatus("Image removed", "saved");
+    } catch (err) { console.error(err); setStatus("Remove failed", ""); }
+    return;
+  }
+  const thumb = e.target.closest(".att-thumb");
+  if (thumb) {
+    const id = parseInt(thumb.dataset.id);
+    if (attUrlCache[id]) openLightbox(attUrlCache[id]);
+  }
+});
+document.getElementById("lightbox").addEventListener("click", closeLightbox);
 document.getElementById("voiceBtn").onclick = toggleVoice;
 document.getElementById("stampBtn").onclick = insertStamp;
 document.getElementById("breakBtn").onclick = insertBreak;
@@ -1285,6 +1510,8 @@ document.addEventListener("keydown", (e) => {
     if (saveTimer) { clearTimeout(saveTimer); savePageNow(); }
   }
   if (e.key === "Escape") {
+    const lb = document.getElementById("lightbox");
+    if (lb.classList.contains("open")) { closeLightbox(); return; }
     const o = document.getElementById("searchOverlay");
     if (o.classList.contains("open")) o.classList.remove("open");
   }
