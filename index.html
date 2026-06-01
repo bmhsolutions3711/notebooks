@@ -412,6 +412,24 @@ button { font-family: inherit; }
 }
 .att-thumb:hover .att-del { opacity: 1; }
 .att-del:hover { background: var(--err); }
+/* Persistent number badge = this image's 【N】 anchor. Tap to drop the marker
+   into the note at the cursor. Always visible so the number reads as a label. */
+.att-num {
+  position: absolute; bottom: 3px; left: 3px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  line-height: 18px; text-align: center;
+  border-radius: 9px; border: none;
+  background: var(--accent); color: #000;
+  font-size: 11px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+.att-num:hover { filter: brightness(1.15); transform: scale(1.08); }
+.att-num.just-inserted { animation: numPop 0.5s ease; }
+@keyframes numPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); box-shadow: 0 0 0 4px rgba(229,181,36,0.35); }
+  100% { transform: scale(1); }
+}
 
 /* ── Lightbox (full-size view) ──────────── */
 .lightbox {
@@ -1249,6 +1267,8 @@ async function renderAttachments() {
   strip.innerHTML = atts.map(a => `
     <div class="att-thumb loading" data-id="${a.id}" title="${escapeHTML(a.filename || 'image')}">
       <img alt="${escapeHTML(a.filename || 'image')}" data-id="${a.id}">
+      <button class="att-num" data-action="anchor" data-id="${a.id}" data-label="${a.label || ''}"
+              title="Insert 【${a.label || '?'}】 marker into the note at the cursor">${a.label || '?'}</button>
       <button class="att-del" data-action="del-att" data-id="${a.id}" title="Remove image">✕</button>
     </div>`).join("");
   for (const a of atts) {
@@ -1471,6 +1491,18 @@ document.getElementById("attachStrip").addEventListener("click", async (e) => {
       await renderAttachments();
       setStatus("Image removed", "saved");
     } catch (err) { console.error(err); setStatus("Remove failed", ""); }
+    return;
+  }
+  const anchor = e.target.closest('[data-action="anchor"]');
+  if (anchor) {
+    e.stopPropagation();
+    const label = anchor.dataset.label;
+    if (!label) { setStatus("No anchor number", ""); return; }
+    insertAtCursor(`【${label}】`);
+    anchor.classList.remove("just-inserted");
+    void anchor.offsetWidth;            // restart the pop animation
+    anchor.classList.add("just-inserted");
+    setStatus(`Anchor 【${label}】 inserted`, "saved");
     return;
   }
   const thumb = e.target.closest(".att-thumb");
