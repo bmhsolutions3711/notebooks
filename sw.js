@@ -1,6 +1,6 @@
 // Notebooks PWA shell — network-first SW. Backend API calls bypass cache.
 // CACHE_NAME is the single source of truth — index.html's build pill auto-syncs.
-const CACHE_NAME = "notebooks-v6";
+const CACHE_NAME = "notebooks-v7";
 const SHELL = [
   "./",
   "./index.html",
