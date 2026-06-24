@@ -379,6 +379,60 @@ button { font-family: inherit; }
   50%     { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
 }
 .meta-count { font-size: 11px; color: var(--text-dim); }
+.tool-btn.active { border-color: var(--accent); color: var(--accent); background: var(--active); }
+
+/* ── Markdown preview ──────────────────── */
+.md-preview {
+  flex: 1;
+  padding: 8px 24px 80px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text);
+  overflow-y: auto;
+  display: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.md-preview h1, .md-preview h2, .md-preview h3 {
+  color: var(--accent); margin: 0.6em 0 0.3em; font-weight: 700;
+}
+.md-preview h1 { font-size: 1.5em; }
+.md-preview h2 { font-size: 1.25em; }
+.md-preview h3 { font-size: 1.1em; }
+.md-preview p { margin: 0.4em 0; }
+.md-preview strong { color: #fff; }
+.md-preview em { font-style: italic; }
+.md-preview code {
+  background: var(--panel-2); padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, monospace; font-size: 0.9em;
+}
+.md-preview pre {
+  background: var(--panel-2); padding: 10px 14px; border-radius: 6px;
+  overflow-x: auto; margin: 0.6em 0;
+}
+.md-preview pre code { background: none; padding: 0; }
+.md-preview ul, .md-preview ol { padding-left: 1.4em; margin: 0.3em 0; }
+.md-preview li { margin: 0.15em 0; }
+.md-preview hr { border: none; border-top: 1px solid var(--border-2); margin: 0.8em 0; }
+.md-preview a { color: var(--accent); text-decoration: underline; }
+.md-preview blockquote {
+  border-left: 3px solid var(--accent); padding-left: 12px;
+  color: var(--text-mid); margin: 0.4em 0;
+}
+.md-preview .md-cb {
+  appearance: none; -webkit-appearance: none;
+  width: 16px; height: 16px; border: 2px solid var(--text-dim);
+  border-radius: 3px; vertical-align: middle; margin-right: 6px;
+  cursor: pointer; position: relative; background: transparent;
+}
+.md-preview .md-cb:checked {
+  border-color: var(--accent); background: var(--accent);
+}
+.md-preview .md-cb:checked::after {
+  content: '✓'; position: absolute; top: -2px; left: 1px;
+  font-size: 12px; color: #000; font-weight: 700;
+}
+.md-preview .md-cb-label.checked { text-decoration: line-through; color: var(--text-dim); }
 
 /* ── Image attachments strip ────────────── */
 .attach-strip {
@@ -521,6 +575,7 @@ button { font-family: inherit; }
   .page-title { font-size: 18px; padding: 14px 16px 6px; }
   .editor { padding: 6px 16px 80px; font-size: 14px; }
   .attach-strip { padding-left: 16px; padding-right: 16px; }
+  .md-preview { padding: 6px 16px 80px; font-size: 14px; }
 }
 </style>
 <script>
@@ -614,16 +669,19 @@ button { font-family: inherit; }
       <div class="page-meta" id="pageMeta" style="display:none;"></div>
       <div class="attach-strip" id="attachStrip" style="display:none;"></div>
       <textarea class="editor" id="editor" placeholder="Start typing… (paste, drop, or 🖼️ to add an image)" style="display:none;"></textarea>
+      <div class="md-preview" id="mdPreview"></div>
       <div class="editor-toolbar" id="editorToolbar" style="display:none;">
         <div class="toolbar-group">
           <button class="tool-btn" id="bulletBtn" title="Bullet list (toggles on current line / selected lines)">• List</button>
           <button class="tool-btn" id="numberBtn" title="Numbered list (toggles on current line / selected lines)">1. List</button>
+          <button class="tool-btn" id="checkBtn" title="Toggle checkbox (- [ ] / - [x])">☐ Check</button>
           <button class="tool-btn" id="indentBtn" title="Indent">→</button>
           <button class="tool-btn" id="outdentBtn" title="Outdent">←</button>
           <button class="tool-btn" id="voiceBtn">🎙️ Dictate</button>
           <button class="tool-btn" id="stampBtn">🕐 Stamp</button>
           <button class="tool-btn" id="breakBtn">── Break</button>
           <button class="tool-btn" id="attachBtn" title="Add image — or paste / drag-drop into the note">🖼️ Image</button>
+          <button class="tool-btn" id="previewBtn" title="Toggle markdown preview">👁 Preview</button>
         </div>
         <div class="toolbar-group">
           <span class="meta-count" id="metaCount">0w · 0c</span>
@@ -923,10 +981,12 @@ function renderEditor() {
   const meta = document.getElementById("pageMeta");
   const ed = document.getElementById("editor");
   const tb = document.getElementById("editorToolbar");
+  const prev = document.getElementById("mdPreview");
 
   if (!state.currentPage) {
     empty.style.display = "flex";
     title.style.display = meta.style.display = ed.style.display = tb.style.display = "none";
+    prev.style.display = "none";
     state.attachments = [];
     const strip = document.getElementById("attachStrip");
     if (strip) { strip.style.display = "none"; strip.innerHTML = ""; }
@@ -935,13 +995,22 @@ function renderEditor() {
   empty.style.display = "none";
   title.style.display = "block";
   meta.style.display = "block";
-  ed.style.display = "block";
   tb.style.display = "flex";
 
   title.value = state.currentPage.title || "Untitled";
   ed.value = state.currentPage.content || "";
   meta.textContent = `Updated ${formatRelative(state.currentPage.updated_at)}`;
   updateCount();
+
+  // Restore edit/preview state
+  if (previewMode) {
+    ed.style.display = "none";
+    prev.innerHTML = renderMarkdown(ed.value);
+    prev.style.display = "block";
+  } else {
+    ed.style.display = "block";
+    prev.style.display = "none";
+  }
 }
 
 let saveTimer = null;
@@ -1006,6 +1075,158 @@ function copyAll() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Markdown preview — render-only view, stored text stays plain
+// ─────────────────────────────────────────────────────────────
+let previewMode = false;
+
+function renderMarkdown(src) {
+  // Minimal markdown renderer — no external deps.
+  // Operates on the raw plain-text note; never stores HTML.
+  const lines = src.split("\n");
+  const out = [];
+  let inCode = false, codeBuf = [];
+  let cbIndex = 0; // global checkbox counter for data-cb attribute
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+
+    // Fenced code blocks
+    if (/^```/.test(raw.trim())) {
+      if (inCode) {
+        out.push("<pre><code>" + escapeHTML(codeBuf.join("\n")) + "</code></pre>");
+        codeBuf = [];
+      }
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) { codeBuf.push(raw); continue; }
+
+    // Horizontal rules (our ──── break or standard ---)
+    if (/^(─{4,}|-{3,}|\*{3,}|_{3,})\s*$/.test(raw.trim())) {
+      out.push("<hr>");
+      continue;
+    }
+
+    // Headers
+    const hm = raw.match(/^(#{1,3})\s+(.*)$/);
+    if (hm) {
+      const lvl = hm[1].length;
+      out.push(`<h${lvl}>${inlineMarkdown(hm[2])}</h${lvl}>`);
+      continue;
+    }
+
+    // Blockquotes
+    const bq = raw.match(/^>\s?(.*)$/);
+    if (bq) {
+      out.push(`<blockquote>${inlineMarkdown(bq[1])}</blockquote>`);
+      continue;
+    }
+
+    // Checkbox lines: - [ ] or - [x]
+    const cbm = raw.match(/^(\s*)- \[([ xX])\]\s?(.*)$/);
+    if (cbm) {
+      const checked = cbm[2].toLowerCase() === "x";
+      const indent = Math.floor(cbm[1].length / 2);
+      const style = indent > 0 ? ` style="margin-left:${indent * 1.4}em"` : "";
+      out.push(
+        `<div${style}><input type="checkbox" class="md-cb" data-cb="${cbIndex}"${checked ? " checked" : ""}>`
+        + `<span class="md-cb-label${checked ? " checked" : ""}">${inlineMarkdown(cbm[3])}</span></div>`
+      );
+      cbIndex++;
+      continue;
+    }
+
+    // Unordered list
+    const ulm = raw.match(/^(\s*)- (.*)$/);
+    if (ulm) {
+      const indent = Math.floor(ulm[1].length / 2);
+      const style = indent > 0 ? ` style="margin-left:${indent * 1.4}em"` : "";
+      out.push(`<ul${style}><li>${inlineMarkdown(ulm[2])}</li></ul>`);
+      continue;
+    }
+
+    // Ordered list
+    const olm = raw.match(/^(\s*)\d+\.\s(.*)$/);
+    if (olm) {
+      const indent = Math.floor(olm[1].length / 2);
+      const style = indent > 0 ? ` style="margin-left:${indent * 1.4}em"` : "";
+      out.push(`<ul${style}><li>${inlineMarkdown(olm[2])}</li></ul>`);
+      continue;
+    }
+
+    // Empty line
+    if (!raw.trim()) { out.push("<br>"); continue; }
+
+    // Paragraph
+    out.push(`<p>${inlineMarkdown(raw)}</p>`);
+  }
+
+  // Close unclosed code block
+  if (inCode) out.push("<pre><code>" + escapeHTML(codeBuf.join("\n")) + "</code></pre>");
+
+  return out.join("\n");
+}
+
+function inlineMarkdown(s) {
+  s = escapeHTML(s);
+  // Bold **text** or __text__
+  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/__(.+?)__/g, "<strong>$1</strong>");
+  // Italic *text* or _text_
+  s = s.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  s = s.replace(/(?<!\w)_(.+?)_(?!\w)/g, "<em>$1</em>");
+  // Inline code
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  // Links [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 【N】 image anchors — highlight them
+  s = s.replace(/【(\d+)】/g, '<span style="color:var(--accent);font-weight:700">【$1】</span>');
+  return s;
+}
+
+function togglePreview() {
+  previewMode = !previewMode;
+  const ed = document.getElementById("editor");
+  const prev = document.getElementById("mdPreview");
+  const btn = document.getElementById("previewBtn");
+
+  if (previewMode) {
+    prev.innerHTML = renderMarkdown(ed.value);
+    ed.style.display = "none";
+    prev.style.display = "block";
+    btn.classList.add("active");
+  } else {
+    ed.style.display = "block";
+    prev.style.display = "none";
+    btn.classList.remove("active");
+    ed.focus();
+  }
+}
+
+// Checkbox clicks in preview → mutate plain text, re-render, trigger save
+document.getElementById("mdPreview").addEventListener("change", (e) => {
+  if (!e.target.classList.contains("md-cb")) return;
+  const cbIdx = parseInt(e.target.dataset.cb);
+  const ed = document.getElementById("editor");
+  const text = ed.value;
+  // Find the Nth checkbox pattern in the text
+  const re = /^(\s*)- \[([ xX])\]/gm;
+  let match, count = 0;
+  while ((match = re.exec(text)) !== null) {
+    if (count === cbIdx) {
+      const wasChecked = match[2].toLowerCase() === "x";
+      const replacement = match[1] + "- [" + (wasChecked ? " " : "x") + "]";
+      ed.value = text.slice(0, match.index) + replacement + text.slice(match.index + match[0].length);
+      // Re-render preview with updated text
+      document.getElementById("mdPreview").innerHTML = renderMarkdown(ed.value);
+      scheduleSave();
+      break;
+    }
+    count++;
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 // Lists — markdown-style bullets/numbers in the textarea.
 // Plain text stays plain (great for FTS5 + future export), but typing
 // feels rich: toolbar toggles, Enter auto-continues, Enter on empty
@@ -1068,6 +1289,29 @@ function toggleNumber() {
   }
 }
 
+function toggleCheckbox() {
+  const ed = document.getElementById("editor");
+  const [s, e] = _selectedLineBounds(ed);
+  const lines = ed.value.slice(s, e).split("\n");
+  const nonEmpty = lines.filter(l => l.trim());
+  if (nonEmpty.length && nonEmpty.every(l => /^\s*- \[[ xX]\]/.test(l))) {
+    // Remove checkbox markers → plain bullets
+    _applyToLines(ed, l => l.replace(/^(\s*)- \[[ xX]\]\s?/, "$1- "));
+  } else {
+    // Add checkbox markers
+    _applyToLines(ed, l => {
+      if (!l.trim()) return l;
+      const indent = (l.match(/^\s*/) || [""])[0];
+      let body = l.slice(indent.length);
+      // Already a checkbox — leave it
+      if (/^- \[[ xX]\]/.test(body)) return l;
+      // Strip bullet/number prefix first
+      body = body.replace(/^- /, "").replace(/^\d+\.\s/, "");
+      return indent + "- [ ] " + body;
+    });
+  }
+}
+
 function indentLine(outdent) {
   const ed = document.getElementById("editor");
   _applyToLines(ed, l => {
@@ -1089,6 +1333,24 @@ function _onEditorKeydown(e) {
     if (!atEnd) return;
     const indent = (line.match(/^\s*/) || [""])[0];
     const body = line.slice(indent.length);
+
+    // Checkbox continuation: - [ ] or - [x]
+    const cbm = body.match(/^- \[[ xX]\]\s?(.*)$/);
+    if (cbm) {
+      e.preventDefault();
+      if (cbm[1].length === 0) {
+        // Empty checkbox line — remove marker
+        const markerLen = body.indexOf("]") + 2;
+        ed.value = ed.value.slice(0, lineStart) + ed.value.slice(lineStart + indent.length + markerLen);
+        ed.selectionStart = ed.selectionEnd = lineStart;
+      } else {
+        const ins = "\n" + indent + "- [ ] ";
+        ed.value = ed.value.slice(0, ed.selectionStart) + ins + ed.value.slice(ed.selectionEnd);
+        ed.selectionStart = ed.selectionEnd = ed.selectionStart + ins.length;
+      }
+      ed.dispatchEvent(new Event("input"));
+      return;
+    }
 
     const bm = body.match(/^- (.*)$/);
     if (bm) {
@@ -1517,9 +1779,11 @@ document.getElementById("stampBtn").onclick = insertStamp;
 document.getElementById("breakBtn").onclick = insertBreak;
 document.getElementById("bulletBtn").onclick = toggleBullet;
 document.getElementById("numberBtn").onclick = toggleNumber;
+document.getElementById("checkBtn").onclick = toggleCheckbox;
 document.getElementById("indentBtn").onclick = () => indentLine(false);
 document.getElementById("outdentBtn").onclick = () => indentLine(true);
 document.getElementById("copyBtn").onclick = copyAll;
+document.getElementById("previewBtn").onclick = togglePreview;
 document.getElementById("searchInput").addEventListener("input", scheduleSearch);
 document.getElementById("mobileNB").onclick = () => document.getElementById("nbPane").classList.toggle("open");
 document.getElementById("mobilePages").onclick = () => document.getElementById("pagesPane").classList.toggle("open");
