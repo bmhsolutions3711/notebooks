@@ -1628,6 +1628,12 @@ async function boot() {
   await loadNotebooks();
 }
 
+// Resume — refetch data when the page comes back from bfcache/background.
+// Standalone PWAs reopened from the app switcher restore from bfcache: the JS
+// never re-runs, so data goes stale until a manual reload.
+window.addEventListener('pageshow', (e) => { if (e.persisted) loadNotebooks(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadNotebooks(); });
+
 if (!API_BASE || !NB_TOKEN) {
   showSetup();
 } else {
