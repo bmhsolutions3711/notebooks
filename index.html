@@ -47,9 +47,19 @@ button { font-family: inherit; }
   grid-template-rows: 48px 1fr;
   height: 100vh;
 }
-.app.nb-collapsed { --nb-width: 0px; grid-template-columns: 0 0 var(--pages-width) 4px 1fr; }
-.app.pages-collapsed { grid-template-columns: var(--nb-width) 4px 0 0 1fr; }
-.app.nb-collapsed.pages-collapsed { grid-template-columns: 0 0 0 0 1fr; }
+/* Every pane owns its column. Auto-placement shifted everything one column left
+   when a collapse hid a resize handle (display:none takes no cell) — the pages
+   pane landed in a 0px track and the editor in the 4px one: a blank screen. */
+.nb-pane                         { grid-column: 1; grid-row: 2; }
+.resize-handle[data-target="nb"]    { grid-column: 2; grid-row: 2; }
+.pages-pane                      { grid-column: 3; grid-row: 2; }
+.resize-handle[data-target="pages"] { grid-column: 4; grid-row: 2; }
+.editor-pane                     { grid-column: 5; grid-row: 2; }
+/* A collapsed pane leaves a 22px track for its expand rail (fixed, 22px wide)
+   so the rail never sits on top of the next pane's header. */
+.app.nb-collapsed { --nb-width: 0px; grid-template-columns: 22px 0 var(--pages-width) 4px 1fr; }
+.app.pages-collapsed { grid-template-columns: var(--nb-width) 4px 0 22px 1fr; }
+.app.nb-collapsed.pages-collapsed { grid-template-columns: 22px 0 0 22px 1fr; }
 .resize-handle {
   cursor: col-resize;
   background: transparent;
@@ -506,6 +516,12 @@ button { font-family: inherit; }
   /* Single column. Topbar fills row 1, editor fills row 2 explicitly so
      no other grid items (resize handles, expand rails) can push it down. */
   .app { grid-template-columns: 1fr; grid-template-rows: 48px 1fr; }
+  /* A collapse saved on this device must not reach the phone grid — the
+     .app.nb-collapsed rules outrank the bare .app one and squeezed the editor
+     into the rail's track. Collapse means nothing here, so the buttons go too. */
+  .app.nb-collapsed, .app.pages-collapsed,
+  .app.nb-collapsed.pages-collapsed { grid-template-columns: 1fr; }
+  .collapse-btn { display: none; }
   .topbar { grid-row: 1; grid-column: 1; }
   .editor-pane { grid-row: 2; grid-column: 1; }
   /* Sidebars are overlays, not grid cells */
@@ -515,7 +531,9 @@ button { font-family: inherit; }
   .nb-pane.open, .pages-pane.open { display: flex; }
   .pages-pane { left: auto; right: 0; box-shadow: -2px 0 10px rgba(0,0,0,0.5); }
   /* Desktop-only chrome — hide on phone so they can't claim grid rows */
-  .resize-handle, .expand-rail { display: none; }
+  .resize-handle { display: none; }
+  /* !important: the .app.nb-collapsed .expand-rail.* rules carry 4-5 classes */
+  .expand-rail { display: none !important; }
   .mobile-toggle { display: block; }
   .mobile-toggle.right { margin-left: auto; }
   .page-title { font-size: 18px; padding: 14px 16px 6px; }
