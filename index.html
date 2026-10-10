@@ -522,6 +522,15 @@ button { font-family: inherit; }
   .editor { padding: 6px 16px 80px; font-size: 14px; }
   .attach-strip { padding-left: 16px; padding-right: 16px; }
 }
+/* card #409: the offline banner floats under the 48px topbar — never a grid
+   child, so showing it can't push the panes into a third row */
+.nb-offline{position:fixed;left:0;right:0;top:48px;z-index:50;display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+  padding:10px 14px;background:rgba(239,68,68,.12);border-bottom:1px solid var(--err);
+  color:var(--text);font-size:13px;line-height:1.4}
+.nb-offline[hidden]{display:none}
+.nb-offline button{background:transparent;color:var(--text);border:1px solid var(--text-mid);
+  border-radius:4px;padding:6px 12px;font:inherit;cursor:pointer;min-height:36px}
+.nb-offline button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>
 <script>
 /* BIK PWA standard — auto-update + #reset + scan-to-connect. Source: bik/pwa-standard/bik-pwa.js */
@@ -567,6 +576,12 @@ button { font-family: inherit; }
     </div>
     <span class="status" id="status">Ready</span>
     <button class="mobile-toggle right" id="mobilePages" title="Pages">📄</button>
+  </div>
+
+  <!-- Offline banner (card #409): a dead tailnet used to paint nothing at all -->
+  <div class="nb-offline" id="nbOffline" role="alert" hidden>
+    <span id="nbOfflineText">Can't reach Notebooks.</span>
+    <button id="nbOfflineRetry" type="button">Retry</button>
   </div>
 
   <!-- Notebooks pane -->
@@ -740,7 +755,17 @@ async function api(method, path, body) {
   if (NB_TOKEN) headers["Authorization"] = "Bearer " + NB_TOKEN;
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(API_BASE + path, opts);
+  let r;
+  try {
+    r = await fetch(API_BASE + path, opts);
+  } catch (e) {
+    // The request never reached the backend — on the phone that is almost
+    // always Tailscale switched off (card #409, 10-08: the Fold sat off the
+    // tailnet for 13h and the page painted nothing). Say so, offer a retry.
+    showOffline();
+    throw e;
+  }
+  hideOffline();
   if (r.status === 401) { showSetup("Token rejected"); throw new Error("401"); }
   if (!r.ok) throw new Error(`${method} ${path} → ${r.status}`);
   return r.json();
@@ -749,6 +774,19 @@ const getJSON  = (p)       => api("GET",    p);
 const postJSON = (p, body) => api("POST",   p, body);
 const putJSON  = (p, body) => api("PUT",    p, body);
 const delJSON  = (p)       => api("DELETE", p);
+
+function showOffline() {
+  let host = API_BASE;
+  try { host = new URL(API_BASE).host; } catch (_) {}
+  document.getElementById("nbOfflineText").textContent =
+    `Can't reach Notebooks at ${host}. Is Tailscale on? Your notes are safe on the Mac.`;
+  document.getElementById("nbOffline").hidden = false;
+  setStatus("Offline");
+}
+function hideOffline() {
+  const b = document.getElementById("nbOffline");
+  if (b && !b.hidden) { b.hidden = true; setStatus("Ready"); }
+}
 
 function setStatus(text, mode) {
   const el = document.getElementById("status");
@@ -1625,14 +1663,18 @@ async function boot() {
   if (saved.nb)   state.activeNotebookId = saved.nb;
   if (saved.sec)  state.activeSectionId  = saved.sec;
   if (saved.page) state.activePageId     = saved.page;
-  await loadNotebooks();
+  try { await loadNotebooks(); } catch (_) { /* showOffline or showSetup already said why */ }
 }
 
 // Resume — refetch data when the page comes back from bfcache/background.
 // Standalone PWAs reopened from the app switcher restore from bfcache: the JS
 // never re-runs, so data goes stale until a manual reload.
-window.addEventListener('pageshow', (e) => { if (e.persisted) loadNotebooks(); });
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadNotebooks(); });
+window.addEventListener('pageshow', (e) => { if (e.persisted) loadNotebooks().catch(() => {}); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadNotebooks().catch(() => {}); });
+document.getElementById("nbOfflineRetry").addEventListener("click", () => {
+  setStatus("Retrying…");
+  loadNotebooks().catch(() => {});
+});
 
 if (!API_BASE || !NB_TOKEN) {
   showSetup();
